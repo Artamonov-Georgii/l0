@@ -6,7 +6,10 @@ import (
 	"io/ioutil"
 	"log"
 
-	"github.com/nats-io/nats.go"
+	"os"
+    "os/signal"
+    "syscall"
+
 	"github.com/nats-io/stan.go"
 )
 
@@ -65,19 +68,14 @@ type Item struct {
 
 func main() {
 
-	nc, err := nats.Connect("nats://localhost:4222")
-	if err != nil {
-		log.Fatalf("Error connecting to NATS server: %v", err)
-	}
-	defer nc.Close()
+	clusterID := "test-cluster"
+	clientID := "test-publisher"
+	subject := "my-subject"
 
-	// Connect to NATS Streaming
-	sc, err := stan.Connect("test-cluster", "test-client", stan.NatsConn(nc))
+	sc, err := stan.Connect(clusterID, clientID, stan.NatsURL("nats://localhost:4222"))
 	if err != nil {
-		log.Fatal(err, "STAN")
-		return
+		log.Fatal(err)
 	}
-	defer sc.Close()
 
 	// Read JSON file into order struct
 	order := &Order{}
@@ -97,7 +95,7 @@ func main() {
 
 	fmt.Println(*order)
 
-	for i := 1; i <= 100; i++ {
+	for i := 1; i <= 10; i++ {
 		order.OrderUID = fmt.Sprintf("%s-%d", order.OrderUID, i)
 		msg, err := json.Marshal(order)
 
@@ -105,9 +103,16 @@ func main() {
 			log.Fatal(err)
 		}
 
-		sc.Publish("orders", msg)
+		if err := sc.Publish(subject, msg); err != nil {
+            log.Fatal(err)
+        }
 	}
 
 	println("\n \n the publishing is complete")
 
+	signalChan := make(chan os.Signal, 1)
+    signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+    <-signalChan
+    fmt.Println("Received signal, shutting down...")
+    os.Exit(0)
 }

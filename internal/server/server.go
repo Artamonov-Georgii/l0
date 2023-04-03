@@ -3,6 +3,11 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"os/signal"
+	"syscall"
+	"os"
+	"time"
+	"context"
 	"net/http"
 )
 
@@ -59,6 +64,8 @@ type Item struct {
 	Status     int    `json:"status"`
 }
 
+var CacheMsg []Order
+
 func getOrder(w http.ResponseWriter, r *http.Request) {
 	orderUID := r.URL.Query().Get("order_uid")
 
@@ -78,8 +85,30 @@ func getOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func Run() {
-	http.HandleFunc("/order_uid", getOrder)
+    http.HandleFunc("/order_uid", getOrder)
 
-	fmt.Println("Starting server on :8080")
-	http.ListenAndServe(":8080", nil)
+    fmt.Println("Starting server on :8080")
+
+    server := &http.Server{Addr: ":8080"}
+
+    go func() {
+        if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            panic(fmt.Sprintf("Error starting server: %v", err))
+        }
+    }()
+
+    // Wait for a signal to shutdown the server
+    sigint := make(chan os.Signal, 1)
+    signal.Notify(sigint, os.Interrupt, syscall.SIGTERM)
+    <-sigint
+    fmt.Println("Shutting down server...")
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+    if err := server.Shutdown(ctx); err != nil {
+        panic(fmt.Sprintf("Error shutting down server: %v", err))
+    }
+    fmt.Println("Server has been shutdown")
 }
+
+

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Artamonov-Georgii/l0/server"
+	"github.com/Artamonov-Georgii/l0/internal/server"
 	_ "github.com/lib/pq"
 )
 
@@ -68,7 +68,7 @@ func GetAllOrders(db *sql.DB) ([]server.Order, error) {
 		var order server.Order
 		var deliveryJson, paymentJson []byte
 
-		err := rows.Scan(&order.OrderUID, &order.TrackNum, &order.Entry, &deliveryJson, &paymentJson, &order.Locale, &order.InternalSignature,
+		err := rows.Scan(&order.OrderUID, &order.TrackNum, &order.Entry, &deliveryJson, &paymentJson, &order.Locale, "",
 			&order.Customer, &order.Service, &order.ShardKey, &order.SMID, &order.CreatedAt, &order.OOFShard)
 
 		if err != nil {
