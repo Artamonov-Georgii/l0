@@ -4,10 +4,22 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/Artamonov-Georgii/l0/internal/server"
 	_ "github.com/lib/pq"
 )
+
+var Db *sql.DB
+var err_db error
+
+func StartSql() {
+	Db, err_db = sql.Open("postgres", "postgres://postgres:postgrespw@localhost:32768/postgres?sslmode=disable")
+
+	if err_db != nil {
+		log.Fatal("Not possible to connect to the database")
+	}
+}
 
 func InsertOrder(db *sql.DB, o server.Order) error {
 
@@ -55,40 +67,75 @@ func InsertOrder(db *sql.DB, o server.Order) error {
 	return nil
 }
 
-func GetAllOrders(db *sql.DB) ([]server.Order, error) {
-	var orders []server.Order
+func GetAllOrders(db *sql.DB) (map[string]server.Order, error) {
+    orders := make(map[string]server.Order)
 
-	rows, err := db.Query("SELECT * FROM orders")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+    rows, err := db.Query("SELECT * FROM orders")
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
 
-	for rows.Next() {
-		var order server.Order
-		var deliveryJson, paymentJson []byte
+    for rows.Next() {
+        var order server.Order
+        var deliveryJson, paymentJson []byte
 
-		err := rows.Scan(&order.OrderUID, &order.TrackNum, &order.Entry, &deliveryJson, &paymentJson, &order.Locale, "",
-			&order.Customer, &order.Service, &order.ShardKey, &order.SMID, &order.CreatedAt, &order.OOFShard)
+        err := rows.Scan(&order.OrderUID, &order.TrackNum, &order.Entry, &deliveryJson, &paymentJson, &order.Locale, &order.IntSig,
+            &order.Customer, &order.Service, &order.ShardKey, &order.SMID, &order.CreatedAt, &order.OOFShard)
 
-		if err != nil {
-			return nil, err
-		}
+        if err != nil {
+            return nil, err
+        }
 
-		if err := json.Unmarshal(deliveryJson, &order.Delivery); err != nil {
-			return nil, err
-		}
+        if err := json.Unmarshal(deliveryJson, &order.Delivery); err != nil {
+            return nil, err
+        }
 
-		if err := json.Unmarshal(paymentJson, &order.Payment); err != nil {
-			return nil, err
-		}
+        if err := json.Unmarshal(paymentJson, &order.Payment); err != nil {
+            return nil, err
+        }
 
-		orders = append(orders, order)
-	}
+        orderItems := []server.Item{}
+        itemRows, err := db.Query(`SELECT oi.chrt_id, oi.track_number, oi.price, 
+		oi.rid, oi.name, oi.sale, 
+		oi.size, oi.total_price, oi.nm_id, 
+		oi.brand, oi.status
+		FROM order_items oi
+		WHERE oi.order_id = $1`, order.OrderUID)
+        if err != nil {
+            return nil, err
+        }
+        defer itemRows.Close()
 
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
+        for itemRows.Next() {
+            var item server.Item
+            err := itemRows.Scan(&item.ChrtID, &item.TrackNum, &item.Price, 
+				&item.RID, &item.Name, &item.Sale, 
+				&item.Size, &item.TotalPrice, &item.NmID, 
+				&item.Brand, &item.Status)
 
-	return orders, nil
+            if err != nil {
+                return nil, err
+            }
+            orderItems = append(orderItems, item)
+        }
+
+        if err := itemRows.Err(); err != nil {
+            return nil, err
+        }
+
+        order.Items = orderItems
+
+        orders[order.OrderUID] = order
+    }
+
+    if err := rows.Err(); err != nil {
+        return nil, err
+    }
+
+    return orders, nil
 }
+
+
+
+

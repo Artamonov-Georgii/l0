@@ -6,8 +6,6 @@ import (
 	"os/signal"
 	"syscall"
 	"os"
-	"time"
-	"context"
 	"net/http"
 )
 
@@ -15,6 +13,7 @@ type Order struct {
 	OrderUID  string   `json:"order_uid"`
 	TrackNum  string   `json:"track_number"`
 	Entry     string   `json:"entry"`
+	IntSig    string   `json:"internal_signature"`
 	Delivery  Delivery `json:"delivery"`
 	Payment   Payment  `json:"payment"`
 	Items     []Item   `json:"items"`
@@ -64,24 +63,24 @@ type Item struct {
 	Status     int    `json:"status"`
 }
 
-var CacheMsg []Order
+var CacheMsg = make(map[string]Order)
 
 func getOrder(w http.ResponseWriter, r *http.Request) {
 	orderUID := r.URL.Query().Get("order_uid")
 
-	for _, o := range CacheMsg {
-		if o.OrderUID == orderUID {
-			jsonBytes, err := json.MarshalIndent(o, "", "    ")
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			fmt.Fprintln(w, string(jsonBytes))
-			return
-		}
+	o, ok := CacheMsg[orderUID]
+	if !ok {
+		http.Error(w, "Order not found", http.StatusNotFound)
+		return
 	}
 
-	http.Error(w, "Order not found", http.StatusNotFound)
+	jsonBytes, err := json.MarshalIndent(o, "", "    ")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Fprintln(w, string(jsonBytes))
 }
 
 func Run() {
@@ -102,13 +101,6 @@ func Run() {
     signal.Notify(sigint, os.Interrupt, syscall.SIGTERM)
     <-sigint
     fmt.Println("Shutting down server...")
-
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
-    if err := server.Shutdown(ctx); err != nil {
-        panic(fmt.Sprintf("Error shutting down server: %v", err))
-    }
-    fmt.Println("Server has been shutdown")
 }
 
 

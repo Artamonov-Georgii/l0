@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -16,22 +15,27 @@ import (
 	"github.com/nats-io/stan.go"
 )
 
+var err_cache error
+
 func main() {
 
 	// Устанавливаем соединение с Постгре
-	db, err_db := sql.Open("postgres", "postgres://postgres:postgrespw@localhost:32771/postgres?sslmode=disable")
 
-	if err_db != nil {
-		log.Fatal("Not possible to connect to the database")
-	}
+	pgsql.StartSql()
+	defer pgsql.Db.Close()
 
 	fmt.Println("DB connection established")
+	
+	// Make nonnil map
+	
+	server.CacheMsg, err_cache = pgsql.GetAllOrders(pgsql.Db)
+	fmt.Println("Cache Len:", len(server.CacheMsg))
 
-	server.CacheMsg, _ = pgsql.GetAllOrders(db)
+	if err_cache != nil {
+        fmt.Println(err_cache)
+    }
 
 	fmt.Println("Cache operations are done")
-
-	defer db.Close()
 
 	// Устанавливаем соединение с Натс-Стриминг
 
@@ -40,6 +44,7 @@ func main() {
 	subject := "my-subject"
 
 	sc, err_stan := stan.Connect(clusterID, clientID, stan.NatsURL("nats://localhost:4222"))
+	
 	if err_stan != nil {
 		log.Fatal(err_stan)
 	}
@@ -50,21 +55,9 @@ func main() {
 
 	go server.Run()
 
-	// Теперь сабскрайбим на тему в натсе
+	// Теперь сабскрайбим на тему в натсе и вставляем функцию обработки сообщений
 
-	sub, err_sub := sc.Subscribe(subject, func(msg *stan.Msg) {
-		log.Printf("Received message on subject")
-		if order, error_mess := nats_checker.IsValidOrderMsg(msg); error_mess == nil {
-			server.CacheMsg = append(server.CacheMsg, order)
-			err_inst := pgsql.InsertOrder(db, order) 
-			fmt.Println(server.CacheMsg)
-			if err_inst != nil {
-                fmt.Println(err_inst)
-			}	
-			fmt.Printf("Receive successfully")
-		} else {
-			fmt.Println("message is not correct")
-		}})
+	sub, err_sub := sc.Subscribe(subject, nats_checker.MessageHandler)
 
 	if err_sub != nil {
 		log.Fatal(err_sub)
@@ -76,7 +69,7 @@ func main() {
 	signalChan := make(chan os.Signal, 1)
     signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
     <-signalChan
-    fmt.Println("Received signal, shutting down...")
+    fmt.Println("\n Received signal, shutting down...")
     os.Exit(0)
 
 }

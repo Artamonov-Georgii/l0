@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-
-	"os"
-    "os/signal"
-    "syscall"
+	"math/rand"
+	"encoding/base64"
 
 	"github.com/nats-io/stan.go"
 )
@@ -66,6 +64,28 @@ type Item struct {
 	Status     int    `json:"status"`
 }
 
+func randomJSON() []byte {
+	data := make(map[string]interface{})
+	data["name"] = generateRandomString(8)
+	data["age"] = rand.Intn(100)
+	data["email"] = fmt.Sprintf("%s@example.com", generateRandomString(8))
+	data["is_active"] = rand.Float32() < 0.5
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		panic(err)
+	}
+	return jsonData
+}
+
+func generateRandomString(length int) string {
+	b := make([]byte, length)
+	_, err := rand.Read(b)
+	if err != nil {
+		return ""
+	}
+	return base64.URLEncoding.EncodeToString(b)
+}
+
 func main() {
 
 	clusterID := "test-cluster"
@@ -76,6 +96,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer sc.Close()
 
 	// Read JSON file into order struct
 	order := &Order{}
@@ -96,7 +117,17 @@ func main() {
 	fmt.Println(*order)
 
 	for i := 1; i <= 10; i++ {
-		order.OrderUID = fmt.Sprintf("%s-%d", order.OrderUID, i)
+
+		if i%2 == 0 {
+			msg := randomJSON()
+			if err := sc.Publish(subject, msg); err != nil {
+				log.Fatal(err)
+				
+			}
+			continue
+		}
+
+		order.OrderUID = generateRandomString(10)
 		msg, err := json.Marshal(order)
 
 		if err != nil {
@@ -110,9 +141,4 @@ func main() {
 
 	println("\n \n the publishing is complete")
 
-	signalChan := make(chan os.Signal, 1)
-    signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
-    <-signalChan
-    fmt.Println("Received signal, shutting down...")
-    os.Exit(0)
 }
