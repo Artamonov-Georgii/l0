@@ -1,3 +1,2 @@
-# l0
+# Sample NATS http in golang
 
-0 тестовое задание
